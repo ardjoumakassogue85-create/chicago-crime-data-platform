@@ -23,7 +23,7 @@ class ChicagoAPIClient:
     def __init__(self, base_url: str, app_token: str):
         """
         Args:
-            base_url: URL de l'API (ex: https://data.cityofchicago.org/resource/ijjp-q8t2.json)
+            base_url: URL de l'API (ex: https://data.cityofchicago.org/resource/ijzp-q8t2.json)
             app_token: Token Socrata (optionnel mais recommandé)
         """
         self.base_url = base_url
