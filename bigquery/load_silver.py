@@ -1,168 +1,127 @@
+"""
+Charge UNE journée de Silver (GCS) dans BigQuery, de façon idempotente.
+
+1. Charge les Parquet de silver/crimes/ingestion_date=<date>/ dans une table de staging
+2. Crée la table finale au premier run (partition crime_date, cluster primary_type/district)
+3. MERGE sur `id` : met à jour les crimes déjà présents, insère les nouveaux
+
+→ Relancer le même jour ne crée jamais de doublons.
+
+Usage : python -m bigquery.load_silver 2024-01-01
+"""
 import os
+import sys
+
+from dotenv import load_dotenv
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from loguru import logger
-from dotenv import load_dotenv
 
 load_dotenv()
 
-def load_silver_to_bg(
-    bucket_name: str,
-    project_id: str,
-    dataset: str = "silver",
-    table: str = "crimes"
-):
-
-    """
-        Charge tous les fichiers Parquet Silver de GCS vers BigQuery.
-        
-        Optimisations BigQuery :
-        - Partitionnement par date (crime_date) : réduit le coût des requêtes par date
-        - Clustering par primary_type et district : optimise les filtres
-        """
-    # Auth via la clé
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GCP_SA_KEY_PATH")
-    
-    #Client Bigquery
-    
-    #ID complet de la table : project.dataset.table
-    table_id = f"{project_id}.{dataset}.{table}"
-    
-    #Configuration du job
-    job_config = bigquery.LoadJobConfig(
-        # Format source : Parquet (BigQuery le lit nativement)
-        source_format=bigquery.SourceFormat.PARQUET,
-        # Mode d'écriture : APPEND (ajoute aux données existantes)
-        # Pour la première charge, BigQuery crée la table
-        write_disposition= bigquery.WriteDisposition.WRITE_APPEND,
-         # PARTITIONNEMENT : découpe la table par jour sur la colonne crime_date
-        # Une requête filtrant sur 1 jour ne scannera que 1/365 du volume
-        time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="crime_date",
-    ),
-
-        # CLUSTERING : trie physiquement les données par ces colonnes
-        # Idéal pour les colonnes souvent dans la clause WHERE
-        clustering_fields=["primary_type", "district"],
-    )
-    
-    ## URL GCS (le ** dit de lire tous les sous-dossiers, ex: crime_year=2023/, crime_year=2024/, etc.)
-    uri = f"gs://{bucket_name}/silver/crimes/**/*.parquet"
-    
-    logger.info(f"📥 Source : {uri}")
-    logger.info(f"📤 Destination : {table_id}")
-    logger.info("⚙️  Configuration :")
-    logger.info("   - Format : Parquet")
-    logger.info("   - Mode : APPEND")
-    logger.info("   - Partition : DAY sur crime_date")
-    logger.info("   - Cluster : primary_type, district")
-
-    #Lancer le job
-    load_job = client.load_table_from_uri(
-        uri,
-        table_id,
-        job_config=job_config,
-        location="europe-west1",
-    )
-    
-    # .result() bloque jusqu'à la fin du job
-    logger.info(f"Lancement du job de chargement: {load_job.job_id}")
-    
-    #Attendre la fin du job
-    load_job.result()
-    
-    #Verification
-    logger.success(f"Chargement terminé! {load_job.output_rows} lignes chargées dans {table_id}")
-    table_obj = client.get_table(table_id)
-    logger.info(f"✅ Chargé {table_obj.num_rows:,} rows into {table_id}")
-    logger.info(f"   Partitioning : {table_obj.partitioning_type}")
-    logger.info(f"   Clustering   : {table_obj.clustering_fields}")
-
-    cat > bigquery/load_silver.py << 'PYEOF'
-"""Charge les données Silver Parquet depuis GCS vers BigQuery."""
-import os
-from google.cloud import bigquery
-from loguru import logger
-from dotenv import load_dotenv
-
-load_dotenv()
+LOCATION = "europe-west1"
 
 
 def load_silver_to_bq(
+    ingestion_date: str,
     bucket_name: str,
     project_id: str,
     dataset: str = "silver",
-    table: str = "crimes"
+    table: str = "crimes",
 ):
-    """
-    Charge tous les fichiers Parquet Silver de GCS vers BigQuery.
-    
-    Optimisations BigQuery :
-    - Partitionnement par date (crime_date) : réduit le coût des requêtes par date
-    - Clustering par primary_type et district : optimise les filtres
-    """
     # Auth via la clé
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GCP_SA_KEY_PATH")
-    
-    # Client BigQuery
     client = bigquery.Client(project=project_id)
-    
-    # ID complet de la table : project.dataset.table
+
     table_id = f"{project_id}.{dataset}.{table}"
-    
-    # Configuration du job de chargement
-    job_config = bigquery.LoadJobConfig(
-        # Format source : Parquet (BigQuery le lit nativement)
-        source_format=bigquery.SourceFormat.PARQUET,
-        
-        # Mode d'écriture : APPEND (ajoute aux données existantes)
-        # Pour la première charge, BigQuery crée la table
-        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        
-        # PARTITIONNEMENT : découpe la table par jour sur la colonne crime_date
-        # Une requête filtrant sur 1 jour ne scannera que 1/365 du volume
-        time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="crime_date",
-        ),
-        
-        # CLUSTERING : trie physiquement les données par ces colonnes
-        # Idéal pour les colonnes souvent dans la clause WHERE
-        clustering_fields=["primary_type", "district"],
-    )
-    
-    # URL GCS (le ** dit de lire tous les sous-dossiers, ex: crime_year=2023/, crime_year=2024/, etc.)
-    uri = f"gs://{bucket_name}/silver/crimes/crime_year=*"
-    
-    logger.info(f"📥 Source : {uri}")
+    staging_id = f"{project_id}.{dataset}._staging_{table}_{ingestion_date.replace('-', '')}"
+    # "crime_year=*" : ne prend que les fichiers Parquet (exclut le fichier _SUCCESS de Spark)
+    uri = f"gs://{bucket_name}/silver/crimes/ingestion_date={ingestion_date}/crime_year=*"
+
+    logger.info(f"📥 Source      : {uri}")
+    logger.info(f"🧪 Staging     : {staging_id}")
     logger.info(f"📤 Destination : {table_id}")
-    logger.info("⚙️  Configuration :")
-    logger.info("   - Format : Parquet")
-    logger.info("   - Mode : APPEND")
-    logger.info("   - Partition : DAY sur crime_date")
-    logger.info("   - Cluster : primary_type, district")
-    
-    # Lancement du job (asynchrone)
-    load_job = client.load_table_from_uri(
-        uri,
-        table_id,
-        job_config=job_config,
-        location="europe-west1",
-    )
-    
-    # .result() bloque jusqu'à la fin du job
-    logger.info("⏳ Chargement en cours...")
-    load_job.result()
-    
-    # Vérification
-    table_obj = client.get_table(table_id)
-    logger.info(f"✅ Loaded {table_obj.num_rows:,} rows into {table_id}")
-    logger.info(f"   Partitioning : {table_obj.partitioning_type}")
-    logger.info(f"   Clustering   : {table_obj.clustering_fields}")
+
+    try:
+        # 1. Charger la journée dans la table de staging (remplacée à chaque run)
+        load_job = client.load_table_from_uri(
+            uri,
+            staging_id,
+            job_config=bigquery.LoadJobConfig(
+                source_format=bigquery.SourceFormat.PARQUET,
+                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+            ),
+            location=LOCATION,
+        )
+        load_job.result()
+        staging = client.get_table(staging_id)
+        logger.info(f"✅ {staging.num_rows:,} lignes chargées en staging")
+
+        # 2. Créer la table finale au premier run, avec le même schéma que le staging
+        try:
+            client.get_table(table_id)
+        except NotFound:
+            new_table = bigquery.Table(table_id, schema=staging.schema)
+            new_table.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY,
+                field="crime_date",
+            )
+            new_table.clustering_fields = ["primary_type", "district"]
+            client.create_table(new_table)
+            logger.info(f"🆕 Table créée : {table_id}")
+
+        # 3. MERGE sur id
+        columns = [field.name for field in staging.schema]
+        has_updated_on = "updated_on" in columns
+        # Si un id apparaît plusieurs fois dans la journée, on garde la version la plus récente
+        order_by = "updated_on DESC" if has_updated_on else "id"
+        # On ne met à jour que si la fiche reçue est plus récente que celle en base
+        update_condition = "AND S.updated_on > T.updated_on" if has_updated_on else ""
+        update_set = ",\n                ".join(
+            f"`{col}` = S.`{col}`" for col in columns if col != "id"
+        )
+
+        merge_sql = f"""
+            MERGE `{table_id}` T
+            USING (
+                SELECT * FROM `{staging_id}`
+                WHERE TRUE
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY {order_by}) = 1
+            ) S
+            ON T.id = S.id
+            WHEN MATCHED {update_condition} THEN UPDATE SET
+                {update_set}
+            WHEN NOT MATCHED THEN INSERT ROW
+        """
+
+        logger.info(f"🔄 MERGE dans {table_id}")
+        merge_job = client.query(merge_sql, location=LOCATION)
+        merge_job.result()
+
+        stats = merge_job.dml_stats
+        if stats is not None:
+            logger.info(
+                f"   {stats.inserted_row_count:,} insérées, "
+                f"{stats.updated_row_count:,} mises à jour"
+            )
+
+        table_obj = client.get_table(table_id)
+        logger.success(f"📊 Total dans {table_id} : {table_obj.num_rows:,} lignes")
+
+    finally:
+        client.delete_table(staging_id, not_found_ok=True)
+        logger.info("🧹 Table de staging supprimée")
 
 
 if __name__ == "__main__":
-    load_silver_to_bq(
-        bucket_name=os.getenv("GCP_BUCKET_NAME"),
-        project_id=os.getenv("GCP_PROJECT_ID"),
-    )
+    if len(sys.argv) < 2:
+        logger.error("Usage : python -m bigquery.load_silver <ingestion_date YYYY-MM-DD>")
+        sys.exit(1)
+
+    bucket_name = os.getenv("GCP_BUCKET_NAME")
+    project_id = os.getenv("GCP_PROJECT_ID")
+    if not bucket_name or not project_id:
+        logger.error("GCP_BUCKET_NAME ou GCP_PROJECT_ID manquant dans l'environnement")
+        sys.exit(1)
+
+    load_silver_to_bq(sys.argv[1], bucket_name, project_id)

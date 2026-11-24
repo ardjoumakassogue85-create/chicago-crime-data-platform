@@ -27,7 +27,7 @@ def run(ingestion_date: str, gcs_bucket: str):
 
     # 2. Chemins
     input_path = f"gs://{gcs_bucket}/bronze/crimes/ingestion_date={ingestion_date}/"
-    output_path = f"gs://{gcs_bucket}/silver/crimes/"
+    output_path = f"gs://{gcs_bucket}/silver/crimes/ingestion_date={ingestion_date}/"
     
     logger.info(f"Preparation de bronze depuis {input_path}")
 
@@ -59,7 +59,7 @@ def run(ingestion_date: str, gcs_bucket: str):
     logger.info(f" Enregistrement des données nettoyer dans silver (partionner par crime_year) dans {output_path}")
     (
         df_clean.write
-        .mode("append")
+        .mode("overwrite")  # remplace uniquement le dossier de ce jour
         .partitionBy("crime_year")
         .parquet(output_path)
     )
