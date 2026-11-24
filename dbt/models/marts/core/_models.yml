@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: fact_crime
+    description: "Table de faits principale, 1 ligne par crime rapporté."
+    columns:
+      - name: crime_id
+        description: "PK unique"
+        tests:
+          - unique
+          - not_null
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: crime_type_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_crime')
+              field: crime_type_key
+      - name: location_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
+      - name: arrest
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+              quote: false
+
+  - name: dim_date
+    description: "Dimension temporelle (1 jour = 1 ligne)"
+    columns:
+      - name: date_key
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_time
+    description: "Dimension temps (1 minute = 1 ligne)"
+    columns:
+      - name: time_key
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_crime
+    description: "Dimension type de crime"
+    columns:
+      - name: crime_type_key
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_location
+    description: "Dimension géographique"
+    columns:
+      - name: location_key
+        tests:
+          - unique
+          - not_null

@@ -1,0 +1,22 @@
+chicago_crime:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      # Chemin vers ta clé JSON
+      keyfile: "{{ env_var('GCP_SA_KEY_PATH') }}"
+      project: chicago-crime-data-platform
+      dataset: silver
+      threads: 4
+      timeout_seconds: 300
+      location: europe-west1
+    prod:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GCP_SA_KEY_PATH') }}"
+      project: chicago-crime-data-platform
+      dataset: silver
+      threads: 4
+      timeout_seconds: 300
+      location: europe-west1

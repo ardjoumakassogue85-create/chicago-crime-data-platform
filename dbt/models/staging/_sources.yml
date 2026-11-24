@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: silver
+    database: chicago-crime-data-platform
+    schema: silver
+    tables:
+      - name: crimes
+        description: "Crimes depuis GCS Silver, partitionnés par date et clusterés par type/district."
+        columns:
+          - name: id
+            description: "Identifiant unique du crime"
+            tests:
+              - unique
+              - not_null
+          - name: crime_datetime
+            description: "Date et heure de l'incident"
+            tests:
+              - not_null
+          - name: primary_type
+            description: "Type principal du crime"
+            tests:
+              - not_null
+          - name: arrest
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [true, false]
+                  quote: false
+          - name: domestic
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [true, false]
+                  quote: false
