@@ -24,6 +24,7 @@ x-airflow-common: &airflow-common
     - ../../spark:/opt/airflow/spark
     - ../../data_quality:/opt/airflow/data_quality
     - ../../bigquery:/opt/airflow/bigquery
+    - ../../scripts:/opt/airflow/scripts
     - ~/keys/chicago-de-sa.json:/opt/gcp/chicago-de-sa.json:ro
     - ~/jars:/home/administrateur/jars:ro
   depends_on:
