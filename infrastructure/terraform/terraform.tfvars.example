@@ -1,0 +1,4 @@
+project_id     = "chicago-crime-data-platform"
+bucket_name    = "chicago-crime-data-kass"
+tfstate_bucket = "chicago-crime-tfstate-kass"
+environment    = "dev"
