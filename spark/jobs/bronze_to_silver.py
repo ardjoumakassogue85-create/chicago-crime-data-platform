@@ -68,6 +68,8 @@ def run(ingestion_date: str, gcs_bucket: str):
     spark.stop()
 
 if __name__ == "__main__":
+    from scripts.logging_config import setup_logging
+    setup_logging()
     ingestion_date = sys.argv[1] if len(sys.argv) > 1 else "2024-01-01"
     gcs_bucket = os.getenv("GCP_BUCKET_NAME", "chicago-crime-data")
     

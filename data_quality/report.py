@@ -90,4 +90,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from scripts.logging_config import setup_logging
+    setup_logging()
     main()

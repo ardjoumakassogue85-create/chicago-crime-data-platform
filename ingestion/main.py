@@ -48,6 +48,8 @@ def run(start_date: str | None = None, end_date: str | None = None):
 
 
 if __name__ == "__main__":
+    from scripts.logging_config import setup_logging
+    setup_logging()
     # Parse les arguments de la ligne de commande
     parser = argparse.ArgumentParser(
         description="Chicago Crime Ingestion"

@@ -114,6 +114,8 @@ def load_silver_to_bq(
 
 
 if __name__ == "__main__":
+    from scripts.logging_config import setup_logging
+    setup_logging()
     if len(sys.argv) < 2:
         logger.error("Usage : python -m bigquery.load_silver <ingestion_date YYYY-MM-DD>")
         sys.exit(1)
