@@ -14,7 +14,6 @@ x-airflow-common: &airflow-common
     GCP_SA_KEY_PATH: /opt/gcp/chicago-de-sa.json
     GCS_BUCKET_NAME: chicago-crime-data-kass
     GCP_PROJECT_ID: chicago-crime-data-platform
-    CHICAGO_APP_TOKEN: ${CHICAGO_APP_TOKEN}
   volumes:
     - ../../airflow/dags:/opt/airflow/dags
     - ../../airflow/logs:/opt/airflow/logs
